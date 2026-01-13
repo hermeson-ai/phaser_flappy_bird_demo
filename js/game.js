@@ -7,6 +7,10 @@ const configurations = {
     type: Phaser.AUTO,
     width: 288,
     height: 512,
+    scale: {
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH
+    },
     physics: {
         default: 'arcade',
         arcade: {
@@ -30,6 +34,7 @@ const configurations = {
 const assets = {
     bird: {
         red: 'bird-red',
+        avatar: 'avatar',
         yellow: 'bird-yellow',
         blue: 'bird-blue'
     },
@@ -83,6 +88,10 @@ const assets = {
             yellow: {
                 clapWings: 'yellow-clap-wings',
                 stop: 'yellow-stop'
+            },
+            avatar: {
+                clapWings: 'avatar-clap-wings',
+                stop: 'avatar-stop'
             }
         },
         ground: {
@@ -198,6 +207,8 @@ let score
  *   Load the game assets.
  */
 function preload() {
+    console.log('preload');
+    
     // Backgrounds and ground
     this.load.image(assets.scene.background.day, 'assets/background-day.png')
     this.load.image(assets.scene.background.night, 'assets/background-night.png')
@@ -207,10 +218,12 @@ function preload() {
     })
 
     // Pipes
-    this.load.image(assets.obstacle.pipe.green.top, 'assets/pipe-green-top.png')
-    this.load.image(assets.obstacle.pipe.green.bottom, 'assets/pipe-green-bottom.png')
-    this.load.image(assets.obstacle.pipe.red.top, 'assets/pipe-red-top.png')
-    this.load.image(assets.obstacle.pipe.red.bottom, 'assets/pipe-red-bottom.png')
+    // this.load.image(assets.obstacle.pipe.green.top, 'assets/pipe-green-top.png')
+    // this.load.image(assets.obstacle.pipe.green.bottom, 'assets/pipe-green-bottom.png')
+    this.load.image(assets.obstacle.pipe.green.top, 'assets/avatar_pipe_top.png')
+    this.load.image(assets.obstacle.pipe.green.bottom, 'assets/avatar_pipe_bottom.png')
+    this.load.image(assets.obstacle.pipe.red.top, 'assets/avatar_pipe_top.png')
+    this.load.image(assets.obstacle.pipe.red.bottom, 'assets/avatar_pipe_bottom.png')
 
     // Start game
     this.load.image(assets.scene.messageInitial, 'assets/message-initial.png')
@@ -231,6 +244,10 @@ function preload() {
     this.load.spritesheet(assets.bird.yellow, 'assets/bird-yellow-sprite.png', {
         frameWidth: 34,
         frameHeight: 24
+    })
+    this.load.spritesheet(assets.bird.avatar, 'assets/avatar_walk_motion_sprite.png', {
+        frameWidth: 31,
+        frameHeight: 48
     })
 
     // Numbers
@@ -288,7 +305,24 @@ function create() {
         }],
         frameRate: 20
     })
-
+    // Avatar Bird Animations
+    this.anims.create({
+        key: assets.animation.bird.avatar.clapWings,
+        frames: this.anims.generateFrameNumbers(assets.bird.avatar, {
+            start: 0,
+            end: 41
+        }),
+        frameRate: 20,
+        repeat: -1
+    })
+    this.anims.create({
+        key: assets.animation.bird.avatar.stop,
+        frames: [{
+            key: assets.bird.avatar,
+            frame: 1
+        }],
+        frameRate: 20
+    })
     // Red Bird Animations
     this.anims.create({
         key: assets.animation.bird.red.clapWings,
@@ -448,7 +482,7 @@ function makePipes(scene) {
     const gap = scene.add.line(288, pipeTopY + 210, 0, 0, 0, 98)
     gapsGroup.add(gap)
     gap.body.allowGravity = false
-    gap.visible = false
+    gap.visible = true
 
     const pipeTop = pipesGroup.create(288, pipeTopY, currentPipe.top)
     pipeTop.body.allowGravity = false
@@ -477,15 +511,16 @@ function moveBird() {
  * @return {string} Bird color asset.
  */
 function getRandomBird() {
-    switch (Phaser.Math.Between(0, 2)) {
-        case 0:
-            return assets.bird.red
-        case 1:
-            return assets.bird.blue
-        case 2:
-        default:
-            return assets.bird.yellow
-    }
+    return assets.bird.avatar
+    // switch (Phaser.Math.Between(0, 2)) {
+    //     case 0:
+    //         return assets.bird.red
+    //     case 1:
+    //         return assets.bird.blue
+    //     case 2:
+    //     default:
+    //         return assets.bird.yellow
+    // }
 }
 
 /**
@@ -494,7 +529,11 @@ function getRandomBird() {
  * @return {object} - Bird animation asset.
  */
 function getAnimationBird(birdColor) {
+    console.log(birdColor);
+    
     switch (birdColor) {
+        case assets.bird.avatar:
+            return assets.animation.bird.avatar
         case assets.bird.red:
             return assets.animation.bird.red
         case assets.bird.blue:
@@ -548,6 +587,7 @@ function restartGame() {
  * @param {object} scene - Game scene.
  */
 function prepareGame(scene) {
+    console.log('prepareGame');
     framesMoveUp = 0
     nextPipes = 0
     currentPipe = assets.obstacle.pipe.green
@@ -559,6 +599,8 @@ function prepareGame(scene) {
 
     birdName = getRandomBird()
     player = scene.physics.add.sprite(60, 265, birdName)
+    console.log(birdName);
+
     player.setCollideWorldBounds(true)
     player.anims.play(getAnimationBird(birdName).clapWings, true)
     player.body.allowGravity = false
