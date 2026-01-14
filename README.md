@@ -51,9 +51,9 @@ http-server
 ```
 npm install -g documentation
 ```
-2. Generate game.js documentation
+2. Generate bird_game.js documentation
 ```
-documentation build js/game.js -f md > docs/game.md
+documentation build js/bird_game.js -f md > docs/bird_game.md
 ```
 
 ## Wiki

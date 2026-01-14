@@ -1,33 +1,4 @@
 /**
- * 
- * Game configurations.
- * @name configurations
- */
-const configurations = {
-    type: Phaser.AUTO,
-    width: 288,
-    height: 512,
-    scale: {
-        mode: Phaser.Scale.FIT,
-        autoCenter: Phaser.Scale.CENTER_BOTH
-    },
-    physics: {
-        default: 'arcade',
-        arcade: {
-            gravity: {
-                y: 300
-            },
-            debug: false
-        }
-    },
-    scene: {
-        preload: preload,
-        create: create,
-        update: update
-    }
-}
-
-/**
  *  Game assets.
  *  @name assets
  */
@@ -59,6 +30,7 @@ const assets = {
         ground: 'ground',
         gameOver: 'game-over',
         restart: 'restart-button',
+        quit: 'quit-button',
         messageInitial: 'message-initial'
     },
     scoreboard: {
@@ -104,10 +76,11 @@ const assets = {
 // Game
 /**
  * The main controller for the entire Phaser game.
+ * 将在 BaseGame / BirdGame 中创建并赋值。
  * @name game
  * @type {object}
  */
-const game = new Phaser.Game(configurations)
+let game
 /**
  * If it had happened a game over.
  * @type {boolean}
@@ -128,6 +101,11 @@ let upButton
  * @type {object}
  */
 let restartButton
+/**
+ * Quit button component.
+ * @type {object}
+ */
+let quitButton
 /**
  * Game over banner component.
  * @type {object}
@@ -231,6 +209,7 @@ function preload() {
     // End game
     this.load.image(assets.scene.gameOver, 'assets/gameover.png')
     this.load.image(assets.scene.restart, 'assets/restart-button.png')
+    this.load.image(assets.scene.quit, 'assets/back-button.png')
 
     // Birds
     this.load.spritesheet(assets.bird.red, 'assets/bird-red-sprite.png', {
@@ -390,12 +369,18 @@ function create() {
     restartButton.on('pointerdown', restartGame)
     restartButton.setDepth(20)
     restartButton.visible = false
+
+    quitButton = this.add.image(assets.scene.width, 360, assets.scene.quit).setInteractive()
+    quitButton.on('pointerdown', backToMain)
+    quitButton.setDepth(20)
+    quitButton.visible = false
 }
 
 /**
  *  Update the scene frame by frame, responsible for move and rotate the bird and to create and move the pipes.
  */
 function update() {
+    // console.log("bird game: update")
     if (gameOver || !gameStarted)
         return
 
@@ -446,6 +431,7 @@ function hitBird(player) {
 
     gameOverBanner.visible = true
     restartButton.visible = true
+    quitButton.visible = true
 }
 
 /**
@@ -563,6 +549,19 @@ function updateScoreboard() {
     }
 }
 
+function backToMain(){
+    pipesGroup.clear(true, true)
+    pipesGroup.clear(true, true)
+    gapsGroup.clear(true, true)
+    scoreboardGroup.clear(true, true)
+    player.destroy()
+    gameOverBanner.visible = false
+    restartButton.visible = false
+    quitButton.visible = false
+
+    // Redirect to index.html or main screen
+    window.location.href = "index.html";
+}
 /**
  * Restart the game. 
  * Clean all groups, hide game over objects and stop game physics.
@@ -575,12 +574,59 @@ function restartGame() {
     player.destroy()
     gameOverBanner.visible = false
     restartButton.visible = false
+    quitButton.visible = false
 
     const gameScene = game.scene.scenes[0]
     prepareGame(gameScene)
 
     gameScene.physics.resume()
 }
+
+/**
+ * BirdGame 具体游戏类，实现 BaseGame 抽象接口。
+ */
+class BirdGame extends BaseGame {
+    constructor() {
+        super()
+        // 这里沿用原来的宽高和物理配置，如有需要可以在此处覆盖 this.configurations
+        this.assets = assets
+    }
+
+    preload(scene) {
+        preload.call(scene)
+    }
+
+    create(scene) {
+        create.call(scene)
+    }
+
+    update(scene, time, delta) {
+        update.call(scene, time, delta)
+    }
+
+    startGame(scene) {
+        startGame(scene)
+    }
+
+    prepareGame(scene) {
+        prepareGame(scene)
+    }
+
+    restartGame() {
+        restartGame()
+    }
+
+    updateScoreboard() {
+        updateScoreboard()
+    }
+    quitGame(){
+        backToMain()
+    }
+}
+
+// 启动具体游戏，并把 Phaser.Game 实例暴露给原有代码使用
+const birdGameInstance = createPhaserGame(BirdGame)
+game = birdGameInstance.game
 
 /**
  * Restart all variable and configurations, show main and recreate the bird.
@@ -611,7 +657,11 @@ function prepareGame(scene) {
     scene.physics.add.overlap(player, gapsGroup, updateScore, null, scene)
 
     ground.anims.play(assets.animation.ground.moving, true)
-}
+
+    // console.log('scaleMode from config:', game.config.scaleMode);
+    // console.log('game size:', scene.scale.gameSize);        // 逻辑宽高
+    // console.log('display size:', scene.scale.displaySize);  // 实际画布显示大小
+    }
 
 /**
  * Start the game, create pipes and hide the main menu.
