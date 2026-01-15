@@ -6,14 +6,15 @@
  */
 
 const MAN_TOTAL_LEVELS = 100
-const MAN_LEVEL_GAP = 80          // 每一层之间的垂直间距
+const MAN_LEVEL_GAP = 90         // 每一层之间的垂直间距（增大以方便通过）
 const MAN_MAX_LIVES = 3
 
 // 平台类型
 const PLATFORM_TYPE = {
     NORMAL: 'normal',      // 普通平台
     FRAGILE: 'fragile',     // 易碎平台（站上后0.5秒消失）
-    BOUNCE: 'bounce'    //弹跳平台（站上后角色会弹起)
+    BOUNCE: 'bounce',    //弹跳平台（站上后角色会弹起)
+    POISON: 'poison'    //毒性平台（站上以后角色损失一个生命值）
 }
 
 /**
@@ -22,7 +23,10 @@ const PLATFORM_TYPE = {
 const manDownAssets = {
     background: 'man-background',
     platform: 'man-platform',
-    player: 'man-player',
+    player: {
+        walk:'man-player-walk',
+        jump:'man-player-jump'
+    },
     goal: 'man-goal',
     ui: {
         gameOver: 'man-game-over',
@@ -84,15 +88,19 @@ class ManDownGame extends BaseGame {
     preload(scene) {
         scene.load.image(this.assets.background, 'assets/background-day.png')
         scene.load.image(this.assets.platform, 'assets/platform.png')
-        scene.load.spritesheet(this.assets.player, 'assets/avatar_walk_motion_sprite.png', {
-            frameWidth: 31,
-            frameHeight: 48
+        scene.load.spritesheet(this.assets.player.walk, 'assets/sprite_avatar_walk.png', {
+            frameWidth: 198,
+            frameHeight: 341
         })
-
+        scene.load.spritesheet(this.assets.player.jump, 'assets/sprite_avatar_jump.png', {
+            frameWidth: 164,
+            frameHeight: 356
+        })
         // UI
         scene.load.image(this.assets.ui.gameOver, 'assets/gameover.png')
         scene.load.image(this.assets.ui.restart, 'assets/restart-button.png')
         scene.load.image(this.assets.ui.quit, 'assets/back-button.png')
+        
     }
 
     /**
@@ -118,11 +126,49 @@ class ManDownGame extends BaseGame {
 
         // 玩家 - 在屏幕上方开始
         const startY = 60
-        this.player = scene.physics.add.sprite(width / 2, startY, this.assets.player)
+        this.player = scene.physics.add.sprite(width / 2, startY, this.assets.player.walk)
         this.player.setCollideWorldBounds(false)
+        
+        // 显示尺寸：缩放到 39x68
+        const displayWidth = 39
+        const displayHeight = 68
+        this.player.setDisplaySize(displayWidth, displayHeight)
         this.player.setBounce(0)
-        this.player.body.setSize(20, 40)
-        this.player.body.setOffset(6, 8)
+
+        // 计算缩放与原始帧大小的关系（Arcade Body 的尺寸以原始帧像素为单位）
+        const frameWidth = this.player.frame.width
+        const frameHeight = this.player.frame.height
+        const scaleX = displayWidth / frameWidth
+        const scaleY = displayHeight / frameHeight
+
+        // 目标碰撞体尺寸（显示坐标系）
+        const desiredBodyWidth = 32
+        const desiredBodyHeight = 60
+        const desiredOffsetX = (displayWidth - desiredBodyWidth) / 2
+        const desiredOffsetY = displayHeight - desiredBodyHeight - 4
+
+        // 换算到原始帧坐标系（Arcade Body 需要未缩放尺寸）
+        const physicsBodyWidth = Math.round(desiredBodyWidth / scaleX)
+        const physicsBodyHeight = Math.round(desiredBodyHeight / scaleY)
+        const physicsOffsetX = Math.round(desiredOffsetX / scaleX)
+        const physicsOffsetY = Math.round(desiredOffsetY / scaleY)
+
+        this.player.body.setSize(physicsBodyWidth, physicsBodyHeight)
+        this.player.body.setOffset(physicsOffsetX, physicsOffsetY)
+
+        // 调试输出
+        console.log('[player] frame size:', frameWidth, frameHeight)
+        console.log('[player] scale:', scaleX.toFixed(3), scaleY.toFixed(3))
+        console.log('[player] display:', displayWidth, displayHeight)
+        console.log('[player] desired body size:', desiredBodyWidth, desiredBodyHeight)
+        console.log('[player] physics body size:', physicsBodyWidth, physicsBodyHeight)
+        console.log('[player] desired offset:', desiredOffsetX, desiredOffsetY)
+        console.log('[player] physics offset:', physicsOffsetX, physicsOffsetY)
+
+        this.player.body.updateFromGameObject()
+        console.log('[player] body position:', this.player.body.position.x, this.player.body.position.y)
+        console.log('[player] body center:', this.player.body.center.x, this.player.body.center.y)
+
         this.player.setMaxVelocity(250, 600)
         
         // 确保玩家底部碰撞检测开启
@@ -131,13 +177,19 @@ class ManDownGame extends BaseGame {
         // 动画
         scene.anims.create({
             key: 'man-walk',
-            frames: scene.anims.generateFrameNumbers(this.assets.player, { start: 0, end: 41 }),
+            frames: scene.anims.generateFrameNumbers(this.assets.player.walk, { start: 0, end: 41 }),
             frameRate: 20,
             repeat: -1
         })
         scene.anims.create({
+            key: 'man-jump',
+            frames: scene.anims.generateFrameNumbers(this.assets.player.jump, { start: 0, end: 41 }),
+            frameRate: 20,
+            repeat: 0
+        })
+        scene.anims.create({
             key: 'man-idle',
-            frames: [{ key: this.assets.player, frame: 1 }],
+            frames: [{ key: this.assets.player.walk, frame: 1 }],
             frameRate: 1
         })
 
@@ -204,6 +256,20 @@ class ManDownGame extends BaseGame {
             // 让玩家跟随平台向上移动
             player.y += this.platformScrollSpeed * (1 / 60) // 假设60fps
             
+            // 毒性平台 - 扣除生命值（只触发一次）
+            if (platformType === PLATFORM_TYPE.POISON && !platform.getData('triggered')) {
+                platform.setData('triggered', true)
+                // 中毒后扣除1点生命值
+                this.lives -= 1
+                if (this.lives <= 0) {
+                    this.lives = 0
+                } else {
+                    // 毒性视觉效果
+                    this._playPoisonEffect(player)
+                }
+                this._updateInfoText()
+            }
+            
             // 如果是易碎平台，触发消失倒计时
             if (platformType === PLATFORM_TYPE.FRAGILE && !platform.getData('triggered')) {
                 platform.setData('triggered', true)
@@ -212,7 +278,30 @@ class ManDownGame extends BaseGame {
             }
         }
     }
-    
+        /**
+     * 弹性平台效果 - 压缩回弹动画
+     */
+    _playPoisonEffect(player) {
+        // 闪烁效果
+        let blinkCount = 0
+        const blinkInterval = setInterval(() => {
+            if (!player.active) {
+                clearInterval(blinkInterval)
+                return
+            }
+            player.setAlpha(player.alpha === 1 ? 0.3 : 1)
+            blinkCount++
+        }, 100)
+
+        setTimeout(() => {
+            clearInterval(blinkInterval)
+            if (player.active) {
+                player.setAlpha(1)
+                player.refreshBody()
+            }
+        }, 600)
+    }
+
     /**
      * 弹性平台效果 - 压缩回弹动画
      */
@@ -322,7 +411,6 @@ class ManDownGame extends BaseGame {
             }
             this.player.anims.play('man-idle', true)
         }
-
         // 左右边界循环
         if (this.player.x < 0) {
             this.player.x = 0
@@ -336,50 +424,85 @@ class ManDownGame extends BaseGame {
         }
 
         // 死亡判定：掉出屏幕底部
-        if (this.player.y > height ) {
+        if (this.player.y >= height - 5 ) {
             this._onPlayerDeath(scene, '掉出屏幕！')
+        }
+        if (this.lives <=0 ){
+            this._onPlayerDeath(scene, 'HP归零！')
         }
     }
 
     /**
      * 创建一行平台（带洞）
+     * 规则：至少有1/4屏幕宽度的平台，至少有1/3屏幕宽度的hole
      */
     _createPlatformRow(scene, y) {
         const { width } = scene.scale
-        const cols = 4
-        const platformWidth = width / cols
-        const holeIndex = Phaser.Math.Between(0, cols - 1)
-
-        for (let i = 0; i < cols; i++) {
-            if (i === holeIndex)
-                continue
-
-            const x = platformWidth * i + platformWidth / 2
-            const platform = this.platforms.create(x, y, this.assets.platform)
-            platform.setScale(platformWidth / platform.width, 0.4)
-            
-            // 随机决定平台类型（60%普通，25%易碎，15%弹性）
-            const rand = Phaser.Math.Between(1, 100)
-            let platformType = PLATFORM_TYPE.NORMAL
-            if (rand <= 25) {
-                platformType = PLATFORM_TYPE.FRAGILE
-            } else if (rand <= 40) {
-                platformType = PLATFORM_TYPE.BOUNCE
-            }
-            
-            platform.setData('type', platformType)
-            platform.setData('triggered', false)
-            
-            // 不同平台类型用不同颜色标识
-            if (platformType === PLATFORM_TYPE.FRAGILE) {
-                platform.setTint(0xff6666) // 红色 - 易碎
-            } else if (platformType === PLATFORM_TYPE.BOUNCE) {
-                platform.setTint(0xeeff66) // 黄色 - 弹性
-            }
-            
-            // 刷新物理体以匹配缩放后的大小
-            platform.refreshBody()
+        const minPlatformWidth = width / 4  // 最小平台宽度：1/4屏幕
+        const minHoleWidth = width / 3      // 最小hole宽度：1/3屏幕
+        
+        // 随机生成hole的宽度（1/3 到 2/3 屏幕宽度）
+        const holeWidth = Phaser.Math.Between(minHoleWidth, width * 1 / 2)
+        
+        // 随机生成hole的起始位置（确保hole在屏幕内）
+        const holeStart = Phaser.Math.Between(0, width - holeWidth)
+        const holeEnd = holeStart + holeWidth
+        
+        // 计算左侧平台和右侧平台的空间
+        const leftSpace = holeStart
+        const rightSpace = width - holeEnd
+        
+        // 创建左侧平台（如果空间足够）
+        if (leftSpace >= minPlatformWidth) {
+            // 随机平台宽度（minPlatformWidth 到 leftSpace）
+            const platformWidth = Phaser.Math.Between(minPlatformWidth, leftSpace)
+            // 平台靠右放置（紧贴hole）或随机位置
+            const platformX = Phaser.Math.Between(0, leftSpace - platformWidth) + platformWidth / 2
+            this._createSinglePlatform(scene, platformX, y, platformWidth)
         }
+        
+        // 创建右侧平台（如果空间足够）
+        if (rightSpace >= minPlatformWidth) {
+            // 随机平台宽度（minPlatformWidth 到 rightSpace）
+            const platformWidth = Phaser.Math.Between(minPlatformWidth, rightSpace)
+            // 平台随机位置
+            const platformX = holeEnd + Phaser.Math.Between(0, rightSpace - platformWidth) + platformWidth / 2
+            this._createSinglePlatform(scene, platformX, y, platformWidth)
+        }
+    }
+    
+    /**
+     * 创建单个平台
+     */
+    _createSinglePlatform(scene, x, y, platformWidth) {
+        const platform = this.platforms.create(x, y, this.assets.platform)
+        platform.setScale(platformWidth / platform.width, 0.4)
+        
+        // 随机决定平台类型（60%普通，25%易碎，15%弹性）
+        const rand = Phaser.Math.Between(1, 100)
+        let platformType = PLATFORM_TYPE.NORMAL
+        if (rand <= 20) {
+            platformType = PLATFORM_TYPE.FRAGILE
+        } else if (rand <= 35) {
+            platformType = PLATFORM_TYPE.BOUNCE
+        }else if (rand <= 50) {
+            platformType = PLATFORM_TYPE.POISON
+        }
+        
+        platform.setData('type', platformType)
+        platform.setData('triggered', false)
+        
+        // 不同平台类型用不同颜色标识
+        if (platformType === PLATFORM_TYPE.FRAGILE) {
+            platform.setTint(0xff6666) // 红色 - 易碎
+        } else if (platformType === PLATFORM_TYPE.BOUNCE) {
+            platform.setTint(0xffff00) // 黄色 - 弹性
+        } else if (platformType === PLATFORM_TYPE.POISON) {
+            platform.setTint(0x111111) // 黑色 - 毒性
+        }
+        
+        // 刷新物理体以匹配缩放后的大小
+        platform.refreshBody()
     }
 
     /**

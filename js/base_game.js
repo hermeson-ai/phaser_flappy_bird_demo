@@ -127,9 +127,11 @@ function createPhaserGame(GameClass, configOverrides = {}) {
 
     const sceneConfig = {
         preload: function () {
+            console.log("preload!");
             instance.preload(this)
         },
         create: function () {
+            console.log("create!");
             instance.create(this)
         },
         update: function (time, delta) {
