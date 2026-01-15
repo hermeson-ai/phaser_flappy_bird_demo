@@ -37,8 +37,13 @@ const PLATFORM_TYPE = {
  * Game assets.
  */
 const manDownAssets = {
-    background: 'man-background',
+    background: {
+        road:'man-background-road',
+        stone:'man-background-stone',
+        default:'man-background-wall'
+    },
     platform: 'man-platform',
+    topBarrier: 'man-top-barrier',
     player: {
         walk:'man-player-walk',
         jump:'man-player-jump'
@@ -112,8 +117,11 @@ class ManDownGame extends BaseGame {
      * @param {Phaser.Scene} scene
      */
     preload(scene) {
-        scene.load.image(this.assets.background, 'assets/background-day.png')
+        scene.load.image(this.assets.background.stone, 'assets/bg_stone.png')
+        scene.load.image(this.assets.background.road, 'assets/bg_road.png')
+        scene.load.image(this.assets.background.default, 'assets/sky_cloud.png')
         scene.load.image(this.assets.platform, 'assets/platform.png')
+        scene.load.image(this.assets.topBarrier, 'assets/top.png')
         scene.load.spritesheet(this.assets.player.walk, 'assets/avatar_walk_sprite.png', {
             frameWidth: 198,
             frameHeight: 341
@@ -135,9 +143,32 @@ class ManDownGame extends BaseGame {
      */
     create(scene) {
         const { width, height } = scene.scale
+        let background = this.assets.background.stone
+
+        switch (Phaser.Math.Between(0, 2)) {
+            case 0:
+                background = this.assets.background.stone
+                break
+            case 1: 
+                background = this.assets.background.road
+                break
+            case 2:
+            default:
+                background = this.assets.background.default
+        }
 
         // 背景（用 tileSprite 填满视口）
-        this.backgroundTile = scene.add.tileSprite(width / 2, height / 2, width, height, this.assets.background)
+        this.backgroundTile = scene.add.tileSprite(width / 2, height / 2, width, height, background)
+        
+        // 顶部锯齿
+        const barrierHeight = this.scaleValue(15)
+        this.topBarrier = scene.physics.add.staticImage(width / 2, 0, this.assets.topBarrier)
+        this.topBarrier.setOrigin(0.5, 0)
+        this.topBarrier.setDisplaySize(width, barrierHeight)
+        this.topBarrier.refreshBody()
+        this.topBarrier.body.setSize(width, barrierHeight, true)
+        this.topBarrier.setDepth(5)
+        this.topBarrier.setTint(0x777777)
 
         // 平台组 - 使用静态组，手动更新位置
         this.platforms = scene.physics.add.staticGroup()
@@ -211,6 +242,7 @@ class ManDownGame extends BaseGame {
 
         // 碰撞 - 使用自定义处理函数
         scene.physics.add.collider(this.player, this.platforms, this._onPlatformCollide, null, this)
+        scene.physics.add.collider(this.player, this.topBarrier, () => this._onTopBarrierHit(scene))
 
         // 输入
         this.cursors = scene.input.keyboard.createCursorKeys()
@@ -311,6 +343,12 @@ class ManDownGame extends BaseGame {
                 this._startFragilePlatformEffect(platform)
             }
         }
+    }
+
+    _onTopBarrierHit(scene) {
+        if (this.gameOver)
+            return
+        this._onPlayerDeath(scene, '被顶部锯齿击中！')
     }
         /**
      * 弹性平台效果 - 压缩回弹动画
