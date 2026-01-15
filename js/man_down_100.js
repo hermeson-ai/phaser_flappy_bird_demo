@@ -267,7 +267,8 @@ class ManDownGame extends BaseGame {
             fontSize: `${this.scaleValue(14)}px`,
             fill: '#ffffff'
         })
-
+        this.infoText.setDepth(20)
+        this.levelText.setDepth(20)
         this._updateLevelText()
 
         // 结算 UI
