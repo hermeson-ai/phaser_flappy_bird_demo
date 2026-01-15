@@ -5,9 +5,25 @@
  * - 掉出屏幕底部或被顶出屏幕顶部则失败
  */
 
+const BASE_GAME_WIDTH = 320
+const BASE_GAME_HEIGHT = 512
+const RESOLUTION_SCALE = 3        // 修改该值即可整体放大/缩小游戏画面
+
 const MAN_TOTAL_LEVELS = 100
-const MAN_LEVEL_GAP = 90         // 每一层之间的垂直间距（增大以方便通过）
-const MAN_MAX_LIVES = 3
+const MAN_LEVEL_GAP_BASE = 100    // 每一层之间的基础垂直间距
+const MAN_MAX_LIVES = 5
+
+const INITIAL_PLATFORM_ROWS = 7
+const INITIAL_PLATFORM_START_Y = 80
+const PLAYER_START_Y = 60
+const PLATFORM_SCROLL_SPEED_BASE = -60
+
+const BASE_PLAYER_DISPLAY_SIZE = { width: 39, height: 68 }
+const BASE_PLAYER_BODY_SIZE = { width: 32, height: 60, bottomPadding: 4 }
+const HUD_LEVEL_POS = { x: 10, y: 10, infoY: 34 }
+const PLAYER_TOP_DEATH_OFFSET = -5
+const PLAYER_BOTTOM_DEATH_OFFSET = 5
+const PLATFORM_DESPAWN_OFFSET = 50
 
 // 平台类型
 const PLATFORM_TYPE = {
@@ -42,10 +58,18 @@ class ManDownGame extends BaseGame {
     constructor() {
         super()
 
+        this.resolutionScale = RESOLUTION_SCALE
+        this.scaleValue = (value) => Math.round(value * this.resolutionScale)
+
+        const scaledWidth = this.scaleValue(BASE_GAME_WIDTH)
+        const scaledHeight = this.scaleValue(BASE_GAME_HEIGHT)
+        
+        console.log("[constructor] scaledW = ",scaledWidth);
+        console.log("[constructor] scaledH = ",scaledHeight);
         // 覆盖基础配置为 Man Down 的宽高和重力
         this.configurations = Object.assign({}, this.configurations, {
-            width: 320,
-            height: 512,
+            width: scaledWidth,
+            height: scaledHeight,
             backgroundColor: '#000000',
             scale: {
                 mode: Phaser.Scale.FIT,
@@ -54,7 +78,7 @@ class ManDownGame extends BaseGame {
             physics: {
                 default: 'arcade',
                 arcade: {
-                    gravity: { y: 600 },
+                    gravity: { y: 600 * this.resolutionScale },
                     debug: false
                 }
             }
@@ -73,12 +97,14 @@ class ManDownGame extends BaseGame {
         this.bestLevel = Number(localStorage.getItem('man_down_best_level') || 0)
         this.lives = MAN_MAX_LIVES
         this.startTime = 0
+        this.activeTouchDirection = 0
+        this.pointerHalfWidth = 0
         
         // 平台滚动相关
-        this.platformScrollSpeed = -60 // 平台向上滚动速度（负值表示向上）
+        this.platformScrollSpeed = this.scaleValue(PLATFORM_SCROLL_SPEED_BASE) // 平台向上滚动速度（负值表示向上）
         this.backgroundTile = null
         this.lastPlatformY = 0 // 记录最后一行平台的Y位置
-        this.platformGap = MAN_LEVEL_GAP // 平台之间的固定间距
+        this.platformGap = this.scaleValue(MAN_LEVEL_GAP_BASE) // 平台之间的固定间距
     }
 
     /**
@@ -88,13 +114,13 @@ class ManDownGame extends BaseGame {
     preload(scene) {
         scene.load.image(this.assets.background, 'assets/background-day.png')
         scene.load.image(this.assets.platform, 'assets/platform.png')
-        scene.load.spritesheet(this.assets.player.walk, 'assets/sprite_avatar_walk.png', {
+        scene.load.spritesheet(this.assets.player.walk, 'assets/avatar_walk_sprite.png', {
             frameWidth: 198,
             frameHeight: 341
         })
-        scene.load.spritesheet(this.assets.player.jump, 'assets/sprite_avatar_jump.png', {
-            frameWidth: 164,
-            frameHeight: 356
+        scene.load.spritesheet(this.assets.player.jump, 'assets/avatar_jump3_sprite.png', {
+            frameWidth: 198,
+            frameHeight: 341
         })
         // UI
         scene.load.image(this.assets.ui.gameOver, 'assets/gameover.png')
@@ -116,22 +142,24 @@ class ManDownGame extends BaseGame {
         // 平台组 - 使用静态组，手动更新位置
         this.platforms = scene.physics.add.staticGroup()
 
+        const initialPlatformStartY = this.scaleValue(INITIAL_PLATFORM_START_Y)
+
         // 生成初始平台（从上到下分布）
-        for (let i = 0; i < 7; i++) {
-            const y = 80 + i * this.platformGap
+        for (let i = 0; i < INITIAL_PLATFORM_ROWS; i++) {
+            const y = initialPlatformStartY + i * this.platformGap
             this._createPlatformRow(scene, y)
         }
         // 记录最后一行平台的位置
-        this.lastPlatformY = 80 + 6 * this.platformGap
+        this.lastPlatformY = initialPlatformStartY + (INITIAL_PLATFORM_ROWS - 1) * this.platformGap
 
         // 玩家 - 在屏幕上方开始
-        const startY = 60
+        const startY = this.scaleValue(PLAYER_START_Y)
         this.player = scene.physics.add.sprite(width / 2, startY, this.assets.player.walk)
         this.player.setCollideWorldBounds(false)
         
-        // 显示尺寸：缩放到 39x68
-        const displayWidth = 39
-        const displayHeight = 68
+        // 显示尺寸随分辨率缩放
+        const displayWidth = this.scaleValue(BASE_PLAYER_DISPLAY_SIZE.width)
+        const displayHeight = this.scaleValue(BASE_PLAYER_DISPLAY_SIZE.height)
         this.player.setDisplaySize(displayWidth, displayHeight)
         this.player.setBounce(0)
 
@@ -142,10 +170,10 @@ class ManDownGame extends BaseGame {
         const scaleY = displayHeight / frameHeight
 
         // 目标碰撞体尺寸（显示坐标系）
-        const desiredBodyWidth = 32
-        const desiredBodyHeight = 60
+        const desiredBodyWidth = this.scaleValue(BASE_PLAYER_BODY_SIZE.width)
+        const desiredBodyHeight = this.scaleValue(BASE_PLAYER_BODY_SIZE.height)
         const desiredOffsetX = (displayWidth - desiredBodyWidth) / 2
-        const desiredOffsetY = displayHeight - desiredBodyHeight - 4
+        const desiredOffsetY = displayHeight - desiredBodyHeight - this.scaleValue(BASE_PLAYER_BODY_SIZE.bottomPadding)
 
         // 换算到原始帧坐标系（Arcade Body 需要未缩放尺寸）
         const physicsBodyWidth = Math.round(desiredBodyWidth / scaleX)
@@ -155,21 +183,9 @@ class ManDownGame extends BaseGame {
 
         this.player.body.setSize(physicsBodyWidth, physicsBodyHeight)
         this.player.body.setOffset(physicsOffsetX, physicsOffsetY)
-
-        // 调试输出
-        console.log('[player] frame size:', frameWidth, frameHeight)
-        console.log('[player] scale:', scaleX.toFixed(3), scaleY.toFixed(3))
-        console.log('[player] display:', displayWidth, displayHeight)
-        console.log('[player] desired body size:', desiredBodyWidth, desiredBodyHeight)
-        console.log('[player] physics body size:', physicsBodyWidth, physicsBodyHeight)
-        console.log('[player] desired offset:', desiredOffsetX, desiredOffsetY)
-        console.log('[player] physics offset:', physicsOffsetX, physicsOffsetY)
-
         this.player.body.updateFromGameObject()
-        console.log('[player] body position:', this.player.body.position.x, this.player.body.position.y)
-        console.log('[player] body center:', this.player.body.center.x, this.player.body.center.y)
 
-        this.player.setMaxVelocity(250, 600)
+        this.player.setMaxVelocity(this.scaleValue(250), this.scaleValue(600))
         
         // 确保玩家底部碰撞检测开启
         this.player.body.checkCollision.down = true
@@ -177,19 +193,19 @@ class ManDownGame extends BaseGame {
         // 动画
         scene.anims.create({
             key: 'man-walk',
-            frames: scene.anims.generateFrameNumbers(this.assets.player.walk, { start: 0, end: 41 }),
-            frameRate: 20,
+            frames: scene.anims.generateFrameNumbers(this.assets.player.walk, { start: 0, end: 34 }),
+            frameRate: 30,
             repeat: -1
         })
         scene.anims.create({
             key: 'man-jump',
-            frames: scene.anims.generateFrameNumbers(this.assets.player.jump, { start: 0, end: 41 }),
-            frameRate: 20,
+            frames: scene.anims.generateFrameNumbers(this.assets.player.jump, { start: 0, end: 34 }),
+            frameRate: 30,
             repeat: 0
         })
         scene.anims.create({
             key: 'man-idle',
-            frames: [{ key: this.assets.player.walk, frame: 1 }],
+            frames: [{ key: this.assets.player.jump, frame: 1 }],
             frameRate: 1
         })
 
@@ -200,14 +216,23 @@ class ManDownGame extends BaseGame {
         this.cursors = scene.input.keyboard.createCursorKeys()
         this.jumpKey = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
 
+        // 触摸控制
+        this.activeTouchDirection = 0
+        this.pointerHalfWidth = width / 2
+        scene.input.on('pointerdown', this._handlePointerDown, this)
+        scene.input.on('pointermove', this._handlePointerMove, this)
+        scene.input.on('pointerup', this._handlePointerUp, this)
+        scene.input.on('pointerupoutside', this._handlePointerUp, this)
+        scene.input.on('gameout', this._handlePointerUp, this)
+
         // HUD
-        this.levelText = scene.add.text(10, 10, '', {
-            fontSize: '18px',
+        this.levelText = scene.add.text(this.scaleValue(HUD_LEVEL_POS.x), this.scaleValue(HUD_LEVEL_POS.y), '', {
+            fontSize: `${this.scaleValue(18)}px`,
             fill: '#ffffff'
         })
 
-        this.infoText = scene.add.text(10, 34, '', {
-            fontSize: '14px',
+        this.infoText = scene.add.text(this.scaleValue(HUD_LEVEL_POS.x), this.scaleValue(HUD_LEVEL_POS.infoY), '', {
+            fontSize: `${this.scaleValue(14)}px`,
             fill: '#ffffff'
         })
 
@@ -228,6 +253,15 @@ class ManDownGame extends BaseGame {
         this.quitButton.visible = false
         this.quitButton.on('pointerdown', () => this.quitGame())
 
+        // 触摸控制
+        this.activeTouchDirection = 0
+        this.pointerHalfWidth = width / 2
+        scene.input.on('pointerdown', this._handlePointerDown, this)
+        scene.input.on('pointermove', this._handlePointerMove, this)
+        scene.input.on('pointerup', this._handlePointerUp, this)
+        scene.input.on('pointerupoutside', this._handlePointerUp, this)
+        scene.input.on('gameout', this._handlePointerUp, this)
+
         // 初始状态
         this.gameOver = false
         this.gameStarted = true
@@ -247,7 +281,7 @@ class ManDownGame extends BaseGame {
             
             // 弹性平台 - 给玩家一个向上的弹跳速度
             if (platformType === PLATFORM_TYPE.BOUNCE) {
-                player.body.setVelocityY(-400) // 向上弹跳
+                player.body.setVelocityY(this.scaleValue(-320)) // 向上弹跳
                 // 弹跳视觉效果
                 this._playBounceEffect(platform)
                 return // 弹跳后不需要跟随平台
@@ -345,6 +379,25 @@ class ManDownGame extends BaseGame {
         }, 400)
     }
 
+    _handlePointerDown(pointer) {
+        if (this.gameOver || !this.gameStarted)
+            return
+        const halfWidth = this.pointerHalfWidth || (pointer.manager && pointer.manager.game
+            ? pointer.manager.game.scale.width / 2
+            : pointer.x)
+        this.activeTouchDirection = pointer.x < halfWidth ? -1 : 1
+    }
+
+    _handlePointerMove(pointer) {
+        if (pointer.isDown) {
+            this._handlePointerDown(pointer)
+        }
+    }
+
+    _handlePointerUp() {
+        this.activeTouchDirection = 0
+    }
+
     /**
      * 帧更新
      */
@@ -372,7 +425,7 @@ class ManDownGame extends BaseGame {
             platform.refreshBody()
             
             // 移除超出屏幕顶部的平台
-            if (platform.y < -50) {
+            if (platform.y < -this.scaleValue(PLATFORM_DESPAWN_OFFSET)) {
                 platform.destroy()
             }
         }
@@ -391,19 +444,22 @@ class ManDownGame extends BaseGame {
 
         // 玩家控制
         const body = this.player.body
-        const moveSpeed = 220
+        const moveSpeed = this.scaleValue(220)
 
-        // 水平移动 - 只在按键时设置速度，不按键时让物理引擎自然处理
-        if (this.cursors.left.isDown) {
+        const leftPressed = this.cursors.left.isDown || this.activeTouchDirection === -1
+        const rightPressed = this.cursors.right.isDown || this.activeTouchDirection === 1
+
+        // 水平移动 - 只在按键或触控时设置速度，不按键时让物理引擎自然处理
+        if (leftPressed && !rightPressed) {
             body.setVelocityX(-moveSpeed)
-            this.player.setFlipX(true)
-            this.player.anims.play('man-walk', true)
-        } else if (this.cursors.right.isDown) {
-            body.setVelocityX(moveSpeed)
             this.player.setFlipX(false)
             this.player.anims.play('man-walk', true)
+        } else if (rightPressed && !leftPressed) {
+            body.setVelocityX(moveSpeed)
+            this.player.setFlipX(true)
+            this.player.anims.play('man-walk', true)
         } else {
-            // 不按键时应用摩擦力减速，但不要每帧强制设置
+            // 不输入时应用摩擦力减速，但不要每帧强制设置
             if (Math.abs(body.velocity.x) > 1) {
                 body.setVelocityX(body.velocity.x * 0.8)
             } else if (body.velocity.x !== 0) {
@@ -419,12 +475,12 @@ class ManDownGame extends BaseGame {
         }
 
         // 死亡判定：被顶出屏幕顶部
-        if (this.player.y < -10) {
+        if (this.player.y < this.scaleValue(PLAYER_TOP_DEATH_OFFSET)) {
             this._onPlayerDeath(scene, '被顶出屏幕！')
         }
 
         // 死亡判定：掉出屏幕底部
-        if (this.player.y >= height - 5 ) {
+        if (this.player.y >= height - this.scaleValue(PLAYER_BOTTOM_DEATH_OFFSET)) {
             this._onPlayerDeath(scene, '掉出屏幕！')
         }
         if (this.lives <=0 ){
@@ -483,9 +539,9 @@ class ManDownGame extends BaseGame {
         let platformType = PLATFORM_TYPE.NORMAL
         if (rand <= 20) {
             platformType = PLATFORM_TYPE.FRAGILE
-        } else if (rand <= 35) {
+        } else if (rand <= 33) {
             platformType = PLATFORM_TYPE.BOUNCE
-        }else if (rand <= 50) {
+        }else if (rand <= 40) {
             platformType = PLATFORM_TYPE.POISON
         }
         

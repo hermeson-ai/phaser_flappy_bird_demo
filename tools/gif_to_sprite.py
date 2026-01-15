@@ -3,15 +3,16 @@ import sys
 from pathlib import Path
 import math
 
-def gif_to_sprite(gif_path, output_path, max_frames=40, frames_per_row=None):
+def gif_to_sprite(gif_path, output_path, max_frames=40, frames_per_row=None, start_frame=0):
     """
-    将 GIF 的前 N 帧提取并拼接成雪碧图
+    将 GIF 指定段落的帧提取并拼接成雪碧图
     
     参数:
         gif_path: GIF 文件路径
         output_path: 输出 PNG 文件路径
         max_frames: 提取的最大帧数（默认 40）
         frames_per_row: 每行放置的帧数（None 表示自动计算，尽量接近正方形）
+        start_frame: 起始帧索引（默认 0）
     """
     # 打开 GIF
     try:
@@ -20,20 +21,42 @@ def gif_to_sprite(gif_path, output_path, max_frames=40, frames_per_row=None):
         print(f"错误：无法打开 GIF 文件: {e}")
         sys.exit(1)
     
-    # 检查是否为 GIF
-    if not hasattr(gif, 'is_animated') or not gif.is_animated:
-        print("警告：该文件不是动画 GIF，将只提取第一帧")
+    total_frames = getattr(gif, 'n_frames', 1)
+    is_animated = hasattr(gif, 'is_animated') and gif.is_animated
+
+    # 校验起始帧
+    if start_frame < 0:
+        print("错误：start_frame 不能为负数")
+        sys.exit(1)
+    if not is_animated and start_frame > 0:
+        print("错误：该 GIF 只有一帧，start_frame 必须为 0")
+        sys.exit(1)
+    if is_animated and start_frame >= total_frames:
+        print(f"错误：start_frame ({start_frame}) 超出范围，GIF 总帧数为 {total_frames}")
+        sys.exit(1)
+
+    # 计算要提取的帧数
+    if not is_animated:
         frames_to_extract = 1
     else:
-        frames_to_extract = min(max_frames, gif.n_frames)
+        remaining = total_frames - start_frame
+        frames_to_extract = min(max_frames, remaining)
+
+    if frames_to_extract <= 0:
+        print("警告：没有可提取的帧，请检查 start_frame 和 max_frames")
+        sys.exit(1)
     
-    print(f"GIF 总帧数: {gif.n_frames}")
-    print(f"将提取前 {frames_to_extract} 帧")
+    print(f"GIF 总帧数: {total_frames}")
+    if is_animated:
+        print(f"将从第 {start_frame} 帧开始提取 {frames_to_extract} 帧")
+    else:
+        print("警告：该文件不是动画 GIF，将只提取第一帧")
     
     # 提取所有帧
     frames = []
     for i in range(frames_to_extract):
-        gif.seek(i)
+        frame_index = start_frame + i if is_animated else 0
+        gif.seek(frame_index)
         # 转换为 RGBA 模式以支持透明背景
         frame = gif.convert("RGBA")
         frames.append(frame.copy())
@@ -83,17 +106,19 @@ def gif_to_sprite(gif_path, output_path, max_frames=40, frames_per_row=None):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("用法: python gif_to_sprite.py <输入GIF文件> <输出PNG文件> [最大帧数] [每行帧数]")
+        print("用法: python gif_to_sprite.py <输入GIF文件> <输出PNG文件> [最大帧数] [每行帧数] [起始帧]")
         print("\n示例:")
         print("  python gif_to_sprite.py input.gif output.png")
         print("  python gif_to_sprite.py input.gif output.png 40")
         print("  python gif_to_sprite.py input.gif output.png 40 10")
+        print("  python gif_to_sprite.py input.gif output.png 20 8 60  # 从第60帧开始提取20帧")
         sys.exit(1)
     
     gif_path = sys.argv[1]
     output_path = sys.argv[2]
     max_frames = int(sys.argv[3]) if len(sys.argv) > 3 else 40
     frames_per_row = int(sys.argv[4]) if len(sys.argv) > 4 else None
+    start_frame = int(sys.argv[5]) if len(sys.argv) > 5 else 0
     
-    gif_to_sprite(gif_path, output_path, max_frames, frames_per_row)
+    gif_to_sprite(gif_path, output_path, max_frames, frames_per_row, start_frame)
 
