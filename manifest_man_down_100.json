@@ -1,0 +1,85 @@
+{
+  "assets": [
+    {
+      "id": "background.night0",
+      "path": "assets/bg_night0.png",
+      "type": "image"
+    },
+    {
+        "id": "background.sea",
+        "path": "assets/bg_sea.png",
+        "type": "image"
+    },
+    {
+        "id": "background.night1",
+        "path": "assets/bg_night1.png",
+        "type": "image"
+    },
+    {
+        "id": "background.night2",
+        "path": "assets/bg_night2.png",
+        "type": "image"
+    },
+    {
+      "id": "background.road",
+      "path": "assets/bg_road.png",
+      "type": "image"
+    },
+    {
+      "id": "background.stone",
+      "path": "assets/bg_stone.png",
+      "type": "image"
+    },
+    {
+      "id": "background.default",
+      "path": "assets/sky_cloud2.png",
+      "type": "image"
+    },
+    {
+      "id": "platform",
+      "path": "assets/Image_out.png",
+      "type": "image"
+    },
+    {
+      "id": "topBarrier",
+      "path": "assets/top_gray.png",
+      "type": "image"
+    },
+    {
+      "id": "player.walk",
+      "path": "assets/avatar_walk_sprite.png",
+      "type": "sprite",
+      "frameWidth": 198,
+      "frameHeight": 341
+    },
+    {
+      "id": "player.jump",
+      "path": "assets/avatar_jump3_sprite.png",
+      "type": "sprite",
+      "frameWidth": 198,
+      "frameHeight": 341
+    },
+    {
+      "id": "ui.gameOver",
+      "path": "assets/gameover.png",
+      "type": "image"
+    },
+    {
+        "id": "ui.gameOverAnim",
+        "path": "assets/avatar_gameover_sprite.png",
+        "type": "sprite",
+        "frameWidth": 307,
+        "frameHeight": 360
+    },
+    {
+      "id": "ui.restart",
+      "path": "assets/btn_restart.png",
+      "type": "image"
+    },
+    {
+      "id": "ui.quit",
+      "path": "assets/btn_back.png",
+      "type": "image"
+    }
+  ]
+}

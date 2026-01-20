@@ -18,9 +18,9 @@ const INITIAL_PLATFORM_START_Y = 80
 const PLAYER_START_Y = 60
 const PLATFORM_SCROLL_SPEED_BASE = -60
 
-const BASE_PLAYER_DISPLAY_SIZE = { width: 39, height: 68 }
-const BASE_PLAYER_BODY_SIZE = { width: 32, height: 60, bottomPadding: 4 }
-const HUD_LEVEL_POS = { x: 10, y: 10, infoY: 34 }
+const BASE_PLAYER_DISPLAY_SIZE = { width: 40, height: 70 }
+const BASE_PLAYER_BODY_SIZE = { width: 34, height: 62, bottomPadding: 4 }
+const HUD_LEVEL_POS = { x: 10, y: 10, infoY: 28 }
 const PLAYER_TOP_DEATH_OFFSET = -5
 const PLAYER_BOTTOM_DEATH_OFFSET = 5
 const PLATFORM_DESPAWN_OFFSET = 50
@@ -34,27 +34,14 @@ const PLATFORM_TYPE = {
 }
 
 /**
- * Game assets.
+ * Game assets manifest path.
  */
-const manDownAssets = {
-    background: {
-        road:'man-background-road',
-        stone:'man-background-stone',
-        default:'man-background-wall'
-    },
-    platform: 'man-platform',
-    topBarrier: 'man-top-barrier',
-    player: {
-        walk:'man-player-walk',
-        jump:'man-player-jump'
-    },
-    goal: 'man-goal',
-    ui: {
-        gameOver: 'man-game-over',
-        restart: 'man-restart',
-        quit: 'man-quit'
-    }
-}
+const MAN_DOWN_MANIFEST_PATH = 'manifest_man_down_100.json'
+
+/**
+ * Game assets - 将从 manifest 文件动态构建
+ */
+let manDownAssets = null
 
 /**
  * ManDownGame 具体游戏类，实现 BaseGame 抽象接口。
@@ -89,7 +76,9 @@ class ManDownGame extends BaseGame {
             }
         })
 
-        this.assets = manDownAssets
+        // assets 将在 preload 中从 manifest 构建
+        this.assets = null
+        this.manifestLoaded = false
 
         // 专属状态
         this.platforms = null
@@ -108,33 +97,142 @@ class ManDownGame extends BaseGame {
         // 平台滚动相关
         this.platformScrollSpeed = this.scaleValue(PLATFORM_SCROLL_SPEED_BASE) // 平台向上滚动速度（负值表示向上）
         this.backgroundTile = null
-        this.lastPlatformY = 0 // 记录最后一行平台的Y位置
+        this.lastPlatformY = 0 // 记录最后一行平台的位置
         this.platformGap = this.scaleValue(MAN_LEVEL_GAP_BASE) // 平台之间的固定间距
     }
 
     /**
-     * 资源加载
+     * 资源加载 - 从 manifest 文件读取配置
      * @param {Phaser.Scene} scene
      */
     preload(scene) {
-        scene.load.image(this.assets.background.stone, 'assets/bg_stone.png')
-        scene.load.image(this.assets.background.road, 'assets/bg_road.png')
-        scene.load.image(this.assets.background.default, 'assets/sky_cloud.png')
-        scene.load.image(this.assets.platform, 'assets/platform.png')
-        scene.load.image(this.assets.topBarrier, 'assets/top.png')
-        scene.load.spritesheet(this.assets.player.walk, 'assets/avatar_walk_sprite.png', {
-            frameWidth: 198,
-            frameHeight: 341
-        })
-        scene.load.spritesheet(this.assets.player.jump, 'assets/avatar_jump3_sprite.png', {
-            frameWidth: 198,
-            frameHeight: 341
-        })
-        // UI
-        scene.load.image(this.assets.ui.gameOver, 'assets/gameover.png')
-        scene.load.image(this.assets.ui.restart, 'assets/restart-button.png')
-        scene.load.image(this.assets.ui.quit, 'assets/back-button.png')
+        // 使用同步方式加载 manifest（在 preload 阶段可以使用同步方式）
+        try {
+            const xhr = new XMLHttpRequest()
+            xhr.open('GET', MAN_DOWN_MANIFEST_PATH, false) // false 表示同步
+            xhr.send(null)
+            
+            if (xhr.status === 200) {
+                const manifest = JSON.parse(xhr.responseText)
+                this._loadAssetsFromManifest(scene, manifest)
+            } else {
+                throw new Error(`HTTP ${xhr.status}: ${xhr.statusText}`)
+            }
+        } catch (error) {
+            console.error('Failed to load manifest:', error)
+            console.warn('Using fallback asset loading')
+            // 降级方案：使用硬编码的资源路径
+            this._loadAssetsFallback(scene)
+        }
+    }
+    
+    /**
+     * 根据 manifest 加载所有资源
+     * @param {Phaser.Scene} scene
+     * @param {object} manifest
+     */
+    _loadAssetsFromManifest(scene, manifest) {
+        // 根据 manifest 构建 assets 对象（嵌套结构）
+        manDownAssets = this._buildAssetsFromManifest(manifest.assets)
+        this.assets = manDownAssets
+        this.manifestLoaded = true
         
+        // 根据 manifest 配置加载资源
+        manifest.assets.forEach(asset => {
+            const assetKey = this._getAssetKey(asset.id)
+            
+            if (asset.type === 'sprite') {
+                console.log("[_loadAssetsFromManifest] spritesheet: assetKey = ", assetKey, " asset.path = ", asset.path);
+                scene.load.spritesheet(assetKey, asset.path, {
+                    frameWidth: asset.frameWidth,
+                    frameHeight: asset.frameHeight
+                })
+            } else if (asset.type === 'image') {
+                console.log("[_loadAssetsFromManifest] image: assetKey = ", assetKey, " asset.path = ", asset.path);
+                scene.load.image(assetKey, asset.path)
+            }
+        })
+    }
+    
+    /**
+     * 根据 manifest 数据构建嵌套的 assets 对象
+     * 例如 "background.stone" -> { background: { stone: "background.stone" } }
+     */
+    _buildAssetsFromManifest(assetsArray) {
+        const assetsObj = {}
+        
+        assetsArray.forEach(asset => {
+            const parts = asset.id.split('.')
+            let current = assetsObj
+            
+            // 创建嵌套结构
+            for (let i = 0; i < parts.length - 1; i++) {
+                if (!current[parts[i]]) {
+                    current[parts[i]] = {}
+                }
+                current = current[parts[i]]
+            }
+            
+            // 设置最终值（使用完整的 id 作为 key）
+            current[parts[parts.length - 1]] = asset.id
+        })
+        
+        return assetsObj
+    }
+    
+    /**
+     * 获取资源在 Phaser 中的 key
+     * 可以直接使用 id，或者根据需要转换
+     */
+    _getAssetKey(id) {
+        return id
+    }
+    
+    /**
+     * 降级方案：如果 manifest 加载失败，使用硬编码的资源路径
+     */
+    _loadAssetsFallback(scene) {
+        console.warn('Using fallback asset loading')
+        // 构建基础的 assets 对象
+        this.assets = {
+            background: {
+                stone: 'background.stone',
+                road: 'background.road',
+                sea: 'background.sea',
+                default: 'background.default'
+            },
+            platform: 'platform',
+            topBarrier: 'topBarrier',
+            player: {
+                walk: 'player.walk',
+                jump: 'player.jump'
+            },
+            ui: {
+                gameOver: 'ui.gameOver',
+                restart: 'ui.restart',
+                quit: 'ui.quit'
+            }
+        }
+        
+        // 硬编码加载资源
+        scene.load.image('background.stone', 'assets/bg_stone.png')
+        scene.load.image('background.sea', 'assets/bg_sea.png')
+        scene.load.image('background.road', 'assets/bg_road.png')
+        scene.load.image('background.default', 'assets/sky_cloud.png')
+        scene.load.image('platform', 'assets/platform.png')
+        scene.load.image('topBarrier', 'assets/top.png')
+        scene.load.spritesheet('player.walk', 'assets/avatar_walk_sprite.png', {
+            frameWidth: 198,
+            frameHeight: 341
+        })
+        scene.load.spritesheet('player.jump', 'assets/avatar_jump3_sprite.png', {
+            frameWidth: 198,
+            frameHeight: 341
+        })
+        
+        scene.load.image('ui.gameOver', 'assets/gameover.png')
+        scene.load.image('ui.restart', 'assets/restart-button.png')
+        scene.load.image('ui.quit', 'assets/back-button.png')
     }
 
     /**
@@ -143,22 +241,30 @@ class ManDownGame extends BaseGame {
      */
     create(scene) {
         const { width, height } = scene.scale
-        let background = this.assets.background.stone
-
-        switch (Phaser.Math.Between(0, 2)) {
+        let background = this.assets.background.default
+        switch (Phaser.Math.Between(0, 3)) {
             case 0:
-                background = this.assets.background.stone
+                background = this.assets.background.night0
                 break
-            case 1: 
-                background = this.assets.background.road
+            case 1:
+                background = this.assets.background.night1
                 break
             case 2:
-            default:
+                background = this.assets.background.night1
+                break
+            case 3:
                 background = this.assets.background.default
+                break
         }
 
-        // 背景（用 tileSprite 填满视口）
-        this.backgroundTile = scene.add.tileSprite(width / 2, height / 2, width, height, background)
+        // 背景（缩放填充整个屏幕）
+        this.backgroundImage = scene.add.image(width / 2, height / 2, background)
+        // 计算缩放比例，确保图片覆盖整个屏幕（cover 模式）
+        const bgScaleX = width / this.backgroundImage.width
+        const bgScaleY = height / this.backgroundImage.height
+        // const bgScale = Math.max(bgScaleX, bgScaleY) // 使用较大的缩放比例确保完全覆盖
+        this.backgroundImage.setScale(bgScaleX,bgScaleY)
+        this.backgroundImage.setDepth(-1) // 确保在最底层
         
         // 顶部锯齿
         const barrierHeight = this.scaleValue(15)
@@ -225,7 +331,7 @@ class ManDownGame extends BaseGame {
         scene.anims.create({
             key: 'man-walk',
             frames: scene.anims.generateFrameNumbers(this.assets.player.walk, { start: 0, end: 34 }),
-            frameRate: 30,
+            frameRate: 40,
             repeat: -1
         })
         scene.anims.create({
@@ -259,12 +365,13 @@ class ManDownGame extends BaseGame {
 
         // HUD
         this.levelText = scene.add.text(this.scaleValue(HUD_LEVEL_POS.x), this.scaleValue(HUD_LEVEL_POS.y), '', {
-            fontSize: `${this.scaleValue(18)}px`,
+            fontFamily: 'Georgia, "Goudy Bookletter 1911", Times, serif',
+            fontSize: `${this.scaleValue(12)}px`,
             fill: '#ffffff'
         })
-
         this.infoText = scene.add.text(this.scaleValue(HUD_LEVEL_POS.x), this.scaleValue(HUD_LEVEL_POS.infoY), '', {
-            fontSize: `${this.scaleValue(14)}px`,
+            fontFamily: 'Georgia, "Goudy Bookletter 1911", Times, serif',
+            fontSize: `${this.scaleValue(10)}px`,
             fill: '#ffffff'
         })
         this.infoText.setDepth(20)
@@ -272,16 +379,29 @@ class ManDownGame extends BaseGame {
         this._updateLevelText()
 
         // 结算 UI
-        this.gameOverBanner = scene.add.image(width / 2, height / 2 - 40, this.assets.ui.gameOver)
+        scene.anims.create({
+            key: 'gameOverAnim',
+            frames: scene.anims.generateFrameNumbers(this.assets.ui.gameOverAnim, { start: 0, end: 64 }),
+            frameRate: 50,
+            repeat: 0
+        })
+        const bannerHeight = this.scaleValue(42)
+        const bannerWidth = this.scaleValue(200)
+        this.gameOverBanner = scene.add.image(width / 2, height / 2 - bannerHeight / 2-20, this.assets.ui.gameOver)
+        this.gameOverBanner.setDisplaySize(bannerWidth, bannerHeight)
         this.gameOverBanner.setDepth(20)
         this.gameOverBanner.visible = false
 
-        this.restartButton = scene.add.image(width / 2, height / 2 + 40, this.assets.ui.restart).setInteractive()
+        const buttonHeight = this.scaleValue(30)
+        const buttonWidth = this.scaleValue(100)
+        this.restartButton = scene.add.image(width / 2, height / 2 + buttonHeight / 2 + 30, this.assets.ui.restart).setInteractive()
+        this.restartButton.setDisplaySize(buttonWidth, buttonHeight)
         this.restartButton.setDepth(20)
         this.restartButton.visible = false
         this.restartButton.on('pointerdown', () => this.restartGame())
 
-        this.quitButton = scene.add.image(width / 2, height / 2 + 110, this.assets.ui.quit).setInteractive()
+        this.quitButton = scene.add.image(width / 2, height / 2 + 20 + buttonHeight * 2 + 10, this.assets.ui.quit).setInteractive()
+        this.quitButton.setDisplaySize(buttonWidth, buttonHeight)
         this.quitButton.setDepth(20)
         this.quitButton.visible = false
         this.quitButton.on('pointerdown', () => this.quitGame())
@@ -413,6 +533,15 @@ class ManDownGame extends BaseGame {
         setTimeout(() => {
             clearInterval(blinkInterval)
             if (platform.active) {
+                // 销毁平台时，同时销毁对应的所有光晕层
+                const glowLayersToDestroy = platform.getData('glowLayers')
+                if (glowLayersToDestroy && Array.isArray(glowLayersToDestroy)) {
+                    glowLayersToDestroy.forEach(glowLayer => {
+                        if (glowLayer && glowLayer.active) {
+                            glowLayer.destroy()
+                        }
+                    })
+                }
                 platform.destroy()
             }
         }, 400)
@@ -447,7 +576,7 @@ class ManDownGame extends BaseGame {
         const { width, height } = scene.scale
 
         // 背景向上滚动
-        this.backgroundTile.tilePositionY += this.platformScrollSpeed * (delta / 1000) * 0.5
+        // this.backgroundTile.tilePositionY += this.platformScrollSpeed * (delta / 1000) * 0.5
 
         // 更新所有平台位置（手动移动静态平台）
         const platforms = this.platforms.getChildren()
@@ -458,6 +587,25 @@ class ManDownGame extends BaseGame {
             
             // 移动平台
             platform.y += moveAmount
+            
+            // 同步更新光晕位置和缩放（如果存在）
+            const glowLayers = platform.getData('glowLayers')
+            if (glowLayers && Array.isArray(glowLayers)) {
+                const glowScaleFactor = platform.getData('glowScaleFactor') || 1.15
+                
+                glowLayers.forEach((glowLayer, index) => {
+                    if (glowLayer && glowLayer.active) {
+                        // 同步位置
+                        glowLayer.x = platform.x
+                        glowLayer.y = platform.y
+                        
+                        // 同步缩放 - 保持渐变比例
+                        const layerScale = 1 + (glowScaleFactor - 1) * (index + 1) / glowLayers.length
+                        glowLayer.setScale(platform.scaleX * layerScale, platform.scaleY * layerScale)
+                    }
+                })
+            }
+            
             // 同步物理体位置
             // body.position 是物理体左上角，sprite.y 是精灵中心
             // 需要用 refreshBody() 或手动计算：body.y = sprite.y - (displayHeight * originY)
@@ -465,6 +613,15 @@ class ManDownGame extends BaseGame {
             
             // 移除超出屏幕顶部的平台
             if (platform.y < -this.scaleValue(PLATFORM_DESPAWN_OFFSET)) {
+                // 销毁平台时，同时销毁对应的所有光晕层
+                const glowLayersToDestroy = platform.getData('glowLayers')
+                if (glowLayersToDestroy && Array.isArray(glowLayersToDestroy)) {
+                    glowLayersToDestroy.forEach(glowLayer => {
+                        if (glowLayer && glowLayer.active) {
+                            glowLayer.destroy()
+                        }
+                    })
+                }
                 platform.destroy()
             }
         }
@@ -517,7 +674,6 @@ class ManDownGame extends BaseGame {
         if (this.player.y < this.scaleValue(PLAYER_TOP_DEATH_OFFSET)) {
             this._onPlayerDeath(scene, '被顶出屏幕！')
         }
-
         // 死亡判定：掉出屏幕底部
         if (this.player.y >= height - this.scaleValue(PLAYER_BOTTOM_DEATH_OFFSET)) {
             this._onPlayerDeath(scene, '掉出屏幕！')
@@ -571,7 +727,7 @@ class ManDownGame extends BaseGame {
      */
     _createSinglePlatform(scene, x, y, platformWidth) {
         const platform = this.platforms.create(x, y, this.assets.platform)
-        platform.setScale(platformWidth / platform.width, 0.4)
+        platform.setScale(platformWidth / platform.width, 0.32)
         
         // 随机决定平台类型（60%普通，25%易碎，15%弹性）
         const rand = Phaser.Math.Between(1, 100)
@@ -587,14 +743,57 @@ class ManDownGame extends BaseGame {
         platform.setData('type', platformType)
         platform.setData('triggered', false)
         
-        // 不同平台类型用不同颜色标识
+        // 不同平台类型用不同颜色标识和光晕配置
+        let glowColor = 0x00ff00 // 默认绿色光晕
+        let glowAlpha = 0.5 // 默认光晕透明度
+        let glowScaleFactor = 1.15 // 光晕缩放系数
+        
         if (platformType === PLATFORM_TYPE.FRAGILE) {
             platform.setTint(0xff6666) // 红色 - 易碎
+            glowColor = 0xff3333 // 红色光晕，更亮
+            glowAlpha = 0.6
+            glowScaleFactor = 1.2
         } else if (platformType === PLATFORM_TYPE.BOUNCE) {
             platform.setTint(0xffff00) // 黄色 - 弹性
+            glowColor = 0xffff33 // 黄色光晕
+            glowAlpha = 0.7
+            glowScaleFactor = 1.18
         } else if (platformType === PLATFORM_TYPE.POISON) {
             platform.setTint(0x111111) // 黑色 - 毒性
+            glowColor = 0x9900ff // 紫色光晕
+            glowAlpha = 0.6
+            glowScaleFactor = 1.15
+        } else {
+            // 普通平台 - 绿色光晕
+            glowColor = 0x00ff00
+            glowAlpha = 0.5
+            glowScaleFactor = 1.12
         }
+        
+        // 创建多层渐变光晕效果 - 使用多个逐渐变大的光晕层
+        const glowLayers = []
+        const glowLayerCount = 3 // 光晕层数，层数越多渐变越平滑
+        
+        // 从内到外创建多层光晕
+        for (let i = 0; i < glowLayerCount; i++) {
+            const layerScale = 1 + (glowScaleFactor - 1) * (i + 1) / glowLayerCount // 逐渐增大
+            const layerAlpha = glowAlpha * (1 - i * 0.3) / Math.pow(i + 1, 0.8) // 逐渐降低透明度
+            
+            // const glowLayer = scene.add.image(x, y, this.assets.platform)
+            // glowLayer.setScale(platform.scaleX * layerScale, platform.scaleY * layerScale)
+            // glowLayer.setTint(glowColor)
+            // glowLayer.setAlpha(layerAlpha)
+            // glowLayer.setBlendMode(Phaser.BlendModes.ADD) // 加色混合模式，增强发光效果
+            // glowLayer.setDepth(1) // 确保光晕在平台下方
+            
+            // glowLayers.push(glowLayer)
+        }
+        
+        platform.setDepth(2) // 平台在上方
+        
+        // 将光晕对象数组存储到平台数据中，方便后续更新和清理
+        platform.setData('glowLayers', glowLayers)
+        platform.setData('glowScaleFactor', glowScaleFactor)
         
         // 刷新物理体以匹配缩放后的大小
         platform.refreshBody()
