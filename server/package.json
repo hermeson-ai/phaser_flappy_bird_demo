@@ -1,0 +1,15 @@
+{
+  "name": "man-down-server",
+  "version": "1.0.0",
+  "description": "WebSocket server for Man Down multiplayer game",
+  "main": "game_server.js",
+  "scripts": {
+    "start": "node game_server.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

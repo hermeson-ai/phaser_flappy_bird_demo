@@ -1,5 +1,13 @@
 {
+  "name": "phaser-game-demo",
+  "version": "1.0.0",
+  "description": "Man Down 100 - Phaser Game Demo with Multiplayer",
+  "main": "server/game_server.js",
+  "scripts": {
+    "start": "node server/game_server.js",
+    "server": "node server/game_server.js"
+  },
   "dependencies": {
-    "@tencent-ai/agent-sdk": "^0.2.0"
+    "ws": "^8.16.0"
   }
 }
